@@ -1,0 +1,205 @@
+╔══════════════════════════════════════════════════════════════════╗
+║                   MAP vs REDUCE - QUICK SUMMARY                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────┐
+│                              MAP()                               │
+│                  "Transform EACH element"                        │
+└──────────────────────────────────────────────────────────────────┘
+
+CONCEPT: Factory assembly line - each item gets transformed
+
+SIGNATURE: .map(element -> newValue)
+
+INPUT:  N elements
+OUTPUT: N elements (transformed)
+
+EXAMPLES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[1, 2, 3, 4, 5]
+  .map(n -> n * 2)
+= [2, 4, 6, 8, 10]          // Doubled each
+
+[1, 2, 3, 4, 5]
+  .map(n -> n * n)
+= [1, 4, 9, 16, 25]         // Squared each
+
+["Java", "Python", "C++"]
+  .map(s -> s.length())
+= [4, 6, 3]                 // Length of each
+
+[User1, User2, User3]
+  .map(user -> user.email)
+= ["a@x.com", "b@x.com", "c@x.com"]  // Extract property
+
+
+┌──────────────────────────────────────────────────────────────────┐
+│                           REDUCE()                               │
+│                "Combine ALL into ONE result"                     │
+└──────────────────────────────────────────────────────────────────┘
+
+CONCEPT: Snowball rolling - accumulates everything into one value
+
+SIGNATURE: .reduce(identity, (accumulator, element) -> result)
+
+INPUT:  N elements
+OUTPUT: 1 single value
+
+EXAMPLES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[1, 2, 3, 4, 5]
+  .reduce(0, (a, b) -> a + b)
+= 15                        // Sum: 1+2+3+4+5
+
+[1, 2, 3, 4, 5]
+  .reduce(1, (a, b) -> a * b)
+= 120                       // Product: 1×2×3×4×5
+
+[3, 7, 2, 9, 1]
+  .reduce(Integer.MIN_VALUE, (a, b) -> a > b ? a : b)
+= 9                         // Maximum
+
+["Hello", "World"]
+  .reduce("", (a, b) -> a + " " + b)
+= " Hello World"            // Concatenation
+
+
+┌──────────────────────────────────────────────────────────────────┐
+│                      MAP + REDUCE COMBO                          │
+│            "Transform each, then combine all"                    │
+└──────────────────────────────────────────────────────────────────┘
+
+[1, 2, 3, 4, 5]
+  .map(n -> n * n)                    → [1, 4, 9, 16, 25]
+  .reduce(0, (a, b) -> a + b)         → 55
+// Sum of squares: 1²+2²+3²+4²+5² = 55
+
+[Product1($10), Product2($25), Product3($5)]
+  .map(p -> p.getPrice())             → [10, 25, 5]
+  .reduce(0.0, (a, b) -> a + b)       → 40.0
+// Total cart price
+
+["Java", "Python", "JavaScript"]
+  .map(s -> s.length())               → [4, 6, 10]
+  .reduce(0, (a, b) -> a + b)         → 20
+// Total character count
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║                    REDUCE STEP-BY-STEP                           ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Example: [1, 2, 3, 4, 5].reduce(0, (a, b) -> a + b)
+
+┌─────────────────────────────────────────────────────────────────┐
+│ Step │  a  │  b  │ Operation │ Result │                        │
+├──────┼─────┼─────┼───────────┼────────┤                        │
+│  1   │  0  │  1  │  0 + 1    │   1    │ (identity + 1st)       │
+│  2   │  1  │  2  │  1 + 2    │   3    │ (prev + 2nd)           │
+│  3   │  3  │  3  │  3 + 3    │   6    │ (prev + 3rd)           │
+│  4   │  6  │  4  │  6 + 4    │  10    │ (prev + 4th)           │
+│  5   │ 10  │  5  │ 10 + 5    │  15    │ (prev + 5th) ✓ FINAL   │
+└──────┴─────┴─────┴───────────┴────────┘
+
+KEY:
+  a = accumulator (carries the result so far)
+  b = current element from stream
+  0 = identity (starting value)
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║                     KEY DIFFERENCES                              ║
+╚══════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────┬─────────────────────────┐
+│          MAP            │        REDUCE           │
+├─────────────────────────┼─────────────────────────┤
+│ Transforms each         │ Combines all            │
+│ N → N items             │ N → 1 value             │
+│ Independent operations  │ Accumulates results     │
+│ Returns Stream          │ Returns single value    │
+│ Intermediate operation  │ Terminal operation      │
+└─────────────────────────┴─────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║                       WHEN TO USE                                ║
+╚══════════════════════════════════════════════════════════════════╝
+
+USE MAP WHEN:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ Converting types (Integer → String)
+✓ Extracting properties (User → Email)
+✓ Applying function to each item (n → n²)
+✓ Formatting data (price → "$" + price)
+
+USE REDUCE WHEN:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ Calculating sum/product
+✓ Finding min/max
+✓ Combining all elements
+✓ Aggregating data
+
+USE MAP + REDUCE WHEN:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ Transform then aggregate (sum of squares)
+✓ Extract then calculate (total prices)
+✓ Convert then combine (count total chars)
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║                    PRACTICE THESE                                ║
+╚══════════════════════════════════════════════════════════════════╝
+
+1. Run the examples:
+   javac MapReduceExamples.java && java MapReduceExamples
+
+2. Read the guide:
+   cat MAP_REDUCE_GUIDE.md
+
+3. Try yourself:
+   - Double all numbers and find their sum
+   - Get all user names and concatenate them
+   - Square all evens and find the product
+
+4. Day 1-2 Focus:
+   ✓ Understand: filter, map, reduce
+   ✓ Practice: LambdaDemo & StreamsDemo
+   ✓ Master: MapReduceExamples
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║                   INTERVIEW ANSWERS                              ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Q: What's the difference between map() and reduce()?
+
+A: "map() transforms EACH element independently (N items → N items),
+   while reduce() combines ALL elements into ONE result (N items → 1).
+
+   Example: [1,2,3]
+   - map(×2) = [2,4,6] (3 items out)
+   - reduce(+) = 6 (1 value out)"
+
+Q: When would you use reduce()?
+
+A: "When I need to aggregate data into a single value, like:
+   - Calculating totals (sum, product)
+   - Finding extremes (min, max)
+   - Combining elements (concatenation)
+
+   Example: Calculate total price of shopping cart"
+
+Q: What's the identity parameter in reduce()?
+
+A: "It's the starting value for the accumulation:
+   - 0 for sum
+   - 1 for product
+   - Integer.MIN_VALUE for max
+   - Empty string for concatenation"
+
+
+═══════════════════════════════════════════════════════════════════
+                     YOU'RE NOW READY! 🚀
+═══════════════════════════════════════════════════════════════════
+
