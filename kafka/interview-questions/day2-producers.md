@@ -267,15 +267,45 @@ class MetricsInterceptor implements ProducerInterceptor<K, V> {
 - Enable idempotence
 - Set `max.in.flight.requests=1` (if not idempotent)
 
+**How idempotency ensures ordering:**
+
+When `enable.idempotence=true`:
+1. Producer gets unique Producer ID (PID) from broker
+2. Each message gets sequence number per partition (0, 1, 2, 3...)
+3. Broker tracks last sequence number for each PID+Partition
+4. On retry, broker checks: "Already have PID=X, SeqNum=Y?"
+   - **Yes**: Send ACK but DON'T append (duplicate detected)
+   - **No**: Append to log and update sequence tracker
+
+**Example scenario:**
+```
+Producer sends: [Msg1:seq=0, Msg2:seq=1, Msg3:seq=2]
+
+Network timeout on Msg1's ACK (but Msg1 WAS written!)
+Producer retries Msg1:seq=0
+
+Broker sees: "I already wrote seq=0 for this producer"
+→ Sends ACK, does NOT append again
+→ No duplicate in log!
+```
+
+**Key point:** The message is **NOT** written twice at different positions. Broker deduplicates BEFORE appending, so the log stays clean and ordered.
+
+**Ordering with retries:**
+- Broker buffers out-of-order requests
+- Uses sequence numbers to detect gaps
+- Rejects messages with unexpected sequence (returns error)
+- Producer retries from the gap
+
 **Across partitions (not guaranteed):**
 - Use single partition (not scalable)
-- Add sequence numbers
+- Add sequence numbers in message
 - Use timestamps
 
 **Best practice:**
 ```properties
 enable.idempotence=true
-max.in.flight.requests.per.connection=5
+max.in.flight.requests.per.connection=5  # Can be >1 with idempotence
 acks=all
 ```
 
@@ -538,6 +568,149 @@ linger.ms=20
 buffer.memory=134217728
 max.in.flight.requests.per.connection=10
 ```
+
+**How each parameter increases throughput:**
+
+---
+
+**1. `acks=1` (vs acks=all)**
+```
+acks=all: Wait for leader + all replicas → 15ms response time
+acks=1:   Wait for leader only → 5ms response time
+```
+- **3x faster acknowledgments** = 3x more messages/sec
+- Leader writes immediately, no waiting for replica sync
+- Trade-off: Can lose data if leader fails before replication
+
+---
+
+**2. `compression.type=lz4`**
+```
+Without compression: 1MB message → 1MB network transfer
+With lz4:           1MB message → 300KB network transfer (70% reduction)
+```
+- **Reduces network bandwidth by 50-70%**
+- Less data to send = faster transfer = more messages fit in same time
+- LZ4 is fast: Minimal CPU overhead (~5ms per MB)
+- Trade-off: Small CPU cost for huge network savings
+
+**Example:**
+- Network: 100 MB/sec
+- Without compression: 100 MB/sec = 100 messages/sec (1MB each)
+- With lz4 (70% reduction): Same network sends 333 messages/sec!
+
+---
+
+**3. `batch.size=65536` (64KB, default=16KB)**
+```
+Default 16KB batch: 100 messages → 7 network requests
+64KB batch:        100 messages → 2 network requests
+```
+- **Fewer network calls** = less overhead
+- Each request has fixed cost (TCP headers, broker processing)
+- 4x larger batches = ~4x fewer requests = higher throughput
+- More messages per request = better efficiency
+
+**Math:**
+- 1000 messages of 1KB each
+- batch.size=16KB → 63 requests (1000KB / 16KB)
+- batch.size=64KB → 16 requests (1000KB / 64KB)
+- **4x fewer requests = 4x less overhead**
+
+---
+
+**4. `linger.ms=20` (default=0)**
+```
+linger.ms=0:  Send immediately → many small batches
+linger.ms=20: Wait 20ms → batches fill up more
+```
+- **Allows batches to fill up** instead of sending half-empty
+- Wait 20ms → accumulate more messages → larger batches
+- Larger batches = better compression + fewer requests
+
+**Example:**
+- Messages arrive at 100/sec
+- linger.ms=0: Send each immediately → 100 requests/sec (batch size ~1KB)
+- linger.ms=20: Wait 20ms → accumulate 2 messages → 50 requests/sec (batch size ~2KB)
+- **Half the requests = double the throughput**
+
+**Trade-off:** 20ms extra latency for much better throughput
+
+---
+
+**5. `buffer.memory=134217728` (128MB, default=32MB)**
+```
+32MB buffer:  Can hold ~32K messages before blocking
+128MB buffer: Can hold ~128K messages before blocking
+```
+- **Prevents producer from blocking** when broker is slow
+- More buffer = more messages queued = smoother flow
+- Producer keeps accepting messages while sender thread catches up
+- Prevents `BufferExhaustedException`
+
+**When it helps:**
+- Broker temporarily slow → buffer absorbs spike
+- Network hiccup → messages queue instead of blocking app
+- Burst traffic → smooth out over time
+
+**Without enough buffer:**
+```
+App → producer.send() → BLOCKS (buffer full) → App waits → Lower throughput
+```
+
+**With large buffer:**
+```
+App → producer.send() → Queued → App continues → High throughput
+```
+
+---
+
+**6. `max.in.flight.requests.per.connection=10` (default=5)**
+```
+max.in.flight=1:  Send batch → Wait for ACK → Send next → Wait...
+max.in.flight=10: Send 10 batches → All in parallel → Wait once
+```
+- **Pipeline effect**: Network pipe stays full
+- No idle waiting between requests
+- Broker processes multiple batches concurrently
+
+**Math:**
+- Network roundtrip: 10ms
+- Batch size: 64KB
+- max.in.flight=1: 64KB per 10ms = 6.4 MB/sec
+- max.in.flight=10: 640KB per 10ms = 64 MB/sec
+- **10x throughput improvement!**
+
+**Visual:**
+```
+Time:    0ms   10ms  20ms  30ms  40ms
+in-flight=1:  [B1]→wait→[B2]→wait→[B3]→wait  (3 batches in 40ms)
+in-flight=10: [B1,B2,...B10]→wait→[B11-B20]  (20 batches in 40ms)
+```
+
+---
+
+**Combined Effect:**
+
+| Parameter | Improvement | Reason |
+|-----------|-------------|--------|
+| acks=1 | 3x | Faster acknowledgments |
+| compression.type=lz4 | 2-3x | Less data to send |
+| batch.size=65536 | 4x | Fewer requests |
+| linger.ms=20 | 2x | Fuller batches |
+| buffer.memory=128MB | 1.5x | No blocking |
+| max.in.flight=10 | 2x | Pipelining |
+
+**Total theoretical improvement: ~144x over conservative defaults!**
+(In practice: 10-20x improvement is realistic)
+
+---
+
+**Trade-offs:**
+- **Latency**: +20ms (linger.ms)
+- **Durability**: Lower (acks=1)
+- **Memory**: 128MB per producer
+- **Ordering**: Need `enable.idempotence=true`
 
 **Architecture:**
 - Multiple producer instances

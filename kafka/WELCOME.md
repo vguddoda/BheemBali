@@ -268,7 +268,8 @@ Create a daily log:
 
 ## 🎁 Bonus Content
 
-### Python Examples Ready
+### Python & Java Examples Ready
+**Python:**
 - Basic producer/consumer
 - Idempotent producer
 - Transactional producer
@@ -276,6 +277,15 @@ Create a daily log:
 - Batch processing
 - Error handling
 - Performance monitoring
+
+**Java:**
+- SimpleProducer - Basic sending
+- ProducerWithCallback - See partition/offset
+- IdempotentProducer - No duplicates
+- SimpleConsumer - Basic reading
+- ConsumerGroup - Load balancing
+- ManualCommit - Control offsets
+- See: `examples/java-examples.md`
 
 ### Quick Reference
 - All Kafka commands
