@@ -1,0 +1,25 @@
+# Kafka Interview Prep - Python Dependencies
+
+# Kafka Client
+kafka-python==2.0.2
+
+# Optional: For better performance and features
+confluent-kafka==2.3.0
+
+# Utilities
+python-dotenv==1.0.0
+
+# JSON handling (usually included)
+# For schema registry integration
+avro==1.11.3
+avro-python3==1.10.2
+
+# Monitoring and metrics
+prometheus-client==0.19.0
+
+# Logging
+colorlog==6.8.0
+
+# For examples and testing
+requests==2.31.0
+
