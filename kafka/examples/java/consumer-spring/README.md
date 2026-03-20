@@ -26,6 +26,10 @@ mvn clean package
 mvn spring-boot:run
 ```
 
+Related doc: `consumer-spring/REBALANCING_SHORT_GUIDE.md`
+
+Deep dive: `consumer-spring/HOW_THREADS_GET_PARTITIONS.md`
+
 ---
 
 ## Examples Included

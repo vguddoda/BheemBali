@@ -239,3 +239,9 @@ You now have:
 
 Read full guide: `consumer-spring/README.md`
 
+Rebalancing short guide: `consumer-spring/REBALANCING_SHORT_GUIDE.md`
+
+**How same listener code routes to different partitions?** `consumer-spring/HOW_THREADS_GET_PARTITIONS.md`
+
+**Concurrency vs CPU cores?** `consumer-spring/CONCURRENCY_VS_CPU_CORES.md`
+

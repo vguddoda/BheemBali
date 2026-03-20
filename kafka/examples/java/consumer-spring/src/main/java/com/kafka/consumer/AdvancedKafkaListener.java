@@ -14,14 +14,14 @@ import org.springframework.stereotype.Component;
 public class AdvancedKafkaListener {
 
     /**
-     * Manual commit with 5 concurrent consumers
+     * Manual commit with 2 concurrent consumers (concurrency = 2)
      * Processes messages and manually commits offsets
      */
     @KafkaListener(
         topics = "test-topic",
         groupId = "advanced-group",
         containerFactory = "manualCommitContainerFactory",
-        concurrency = "2"  // 5 concurrent consumers
+        concurrency = "2"  // 2 concurrent consumers, each gets assigned partition(s)
     )
     public void listenWithManualCommit(
         @Payload String message,
