@@ -94,15 +94,32 @@ Example:
 Rule: Set concurrency = partition count for optimal use
 ```
 
+Simple way to think about it:
+- One partition can be consumed by only one thread in the same consumer group at a time
+- One thread can handle one or more partitions
+- If threads > partitions, extra threads stay idle
+
+Example:
+```
+1 pod with concurrency=10
+topic has 2 partitions
+
+Result:
+- 2 threads will be active
+- 8 threads will be idle
+- Partition 0 goes to one thread
+- Partition 1 goes to another thread
+```
+
 ### "Manual vs Auto Commit with Concurrency?"
 
 **Answer:**
 ```java
-// Auto-commit (default)
+// Spring commits after the records from the poll are processed
 factory.getContainerProperties()
     .setAckMode(ContainerProperties.AckMode.BATCH);
 
-// Manual commit (safer)
+// Your code decides when to commit
 factory.getContainerProperties()
     .setAckMode(ContainerProperties.AckMode.MANUAL);
 
@@ -112,6 +129,11 @@ public void listen(String msg, Acknowledgment ack) {
     ack.acknowledge();  // Explicit commit
 }
 ```
+
+In simple words:
+- `AckMode.BATCH` → Spring commits for you after the listener finishes processing the records it just received. Less code, good for simple consumers.
+- `AckMode.MANUAL` → you commit only when *you* call `ack.acknowledge()`. Better when you want to commit only after DB save, API call, or any important business logic succeeds.
+- If the app fails before commit, Kafka can redeliver those records later. That is why manual ack is often called safer.
 
 ---
 

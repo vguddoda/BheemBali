@@ -78,6 +78,22 @@ Each thread gets assigned partitions and processes independently.
 
 **Rule:** Max useful concurrency = number of partitions
 
+Simple rule of thumb:
+- One partition is read by only one thread in the same consumer group at a time
+- One thread can own one or more partitions
+- If concurrency is higher than partition count, the extra threads stay idle
+
+Example:
+```
+1 pod, concurrency=10, topic has 2 partitions
+
+Result:
+- 2 threads active
+- 8 threads idle
+- One thread reads partition 0
+- One thread reads partition 1
+```
+
 ---
 
 ## Configuration Breakdown
@@ -94,6 +110,8 @@ public ConcurrentKafkaListenerContainerFactory<String, String>
 }
 ```
 
+`AckMode.BATCH` means Spring commits after the listener finishes processing the records returned by the last poll. It is simpler because you do not manually call acknowledge.
+
 ### Manual Commit Configuration:
 ```java
 @Bean
@@ -106,6 +124,8 @@ public ConcurrentKafkaListenerContainerFactory<String, String>
     return factory;
 }
 ```
+
+`AckMode.MANUAL` means your listener decides when to commit by calling `ack.acknowledge()`. This is useful when you want to commit only after DB save, API call, or other business logic succeeds.
 
 ### Batch Processing Configuration:
 ```java

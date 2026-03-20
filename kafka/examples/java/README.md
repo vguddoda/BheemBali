@@ -75,5 +75,18 @@ Kill consumer while running - see rebalance
 ### Test 3: No Duplicates
 Use IdempotentProducer - even network fails, no duplicates
 
+### Test 4: Concurrent Processing with Spring Kafka ✨ NEW!
+```bash
+# Terminal 1 - Start Spring consumer (10 concurrent threads)
+cd consumer-spring
+mvn spring-boot:run
+
+# Terminal 2 - Send messages
+cd ../producer
+mvn exec:java -Dexec.mainClass="SimpleProducer"
+
+# Watch 10 different threads process messages in parallel!
+```
+
 Done!
 
