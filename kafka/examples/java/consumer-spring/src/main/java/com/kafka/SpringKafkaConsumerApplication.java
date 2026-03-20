@@ -1,0 +1,15 @@
+package com.kafka;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class SpringKafkaConsumerApplication {
+    
+    public static void main(String[] args) {
+        SpringApplication.run(SpringKafkaConsumerApplication.class, args);
+        System.out.println("Spring Kafka Consumer started!");
+        System.out.println("Listening with multiple concurrent consumers...");
+    }
+}
+
