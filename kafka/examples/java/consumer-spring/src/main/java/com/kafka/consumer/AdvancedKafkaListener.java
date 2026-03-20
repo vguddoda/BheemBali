@@ -21,7 +21,7 @@ public class AdvancedKafkaListener {
         topics = "test-topic",
         groupId = "advanced-group",
         containerFactory = "manualCommitContainerFactory",
-        concurrency = "5"  // 5 concurrent consumers
+        concurrency = "2"  // 5 concurrent consumers
     )
     public void listenWithManualCommit(
         @Payload String message,
@@ -38,7 +38,7 @@ public class AdvancedKafkaListener {
             
             // Simulate processing
             processMessage(message);
-            
+
             // Manual commit after successful processing
             acknowledgment.acknowledge();
             System.out.printf("[%s] ✓ Committed offset %d%n", threadName, offset);
@@ -51,7 +51,7 @@ public class AdvancedKafkaListener {
     
     private void processMessage(String message) throws Exception {
         // Your business logic here
-        Thread.sleep(50);
+        Thread.sleep(6000);
     }
 }
 

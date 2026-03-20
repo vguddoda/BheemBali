@@ -10,7 +10,7 @@ public class ProducerWithCallback {
         
         KafkaProducer<String, String> producer = new KafkaProducer<>(props);
         
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 100; i++) {
             producer.send(new ProducerRecord<>("test-topic", "key-" + i, "msg-" + i), 
                 (metadata, e) -> {
                     if (e == null) {

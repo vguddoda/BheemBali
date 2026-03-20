@@ -27,6 +27,9 @@ mvn exec:java -Dexec.mainClass="ProducerWithCallback"
 
 # 3. Idempotent - No duplicates
 mvn exec:java -Dexec.mainClass="IdempotentProducer"
+
+# 4. Three Partition Producer - Explicitly publish to partitions 0, 1, 2
+mvn exec:java -Dexec.mainClass="ThreePartitionProducer"
 ```
 
 ### Consumer Examples (Day 3)
