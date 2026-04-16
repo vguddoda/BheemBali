@@ -26,6 +26,190 @@
 | **Normalization** | Normalized (3NF+), reduce redundancy | Denormalized, embed data for read performance |
 | **Indexing** | B-Tree, Hash, GiST, GIN, BRIN (rich) | LSM-Tree, B-Tree (varies by engine) |
 
+### Transactions — Example: Money Transfer
+
+**SQL (PostgreSQL/MySQL) — Full ACID across multiple tables:**
+```sql
+-- Transfer ₹500 from Account A to Account B
+BEGIN;
+  UPDATE accounts SET balance = balance - 500 WHERE id = 'A';  -- Debit
+  UPDATE accounts SET balance = balance + 500 WHERE id = 'B';  -- Credit
+  INSERT INTO transactions (from_acc, to_acc, amount, ts) 
+    VALUES ('A', 'B', 500, NOW());                             -- Audit log
+COMMIT;
+
+-- If ANY statement fails → entire transaction ROLLS BACK
+-- Account A is NEVER debited without Account B being credited
+-- This works across MULTIPLE TABLES atomically
+```
+
+**NoSQL (MongoDB) — Single-document ACID, multi-document is limited:**
+```javascript
+// Account A and Account B are separate documents in "accounts" collection
+// WITHOUT transactions (pre-4.0 or for performance):
+
+db.accounts.updateOne({ _id: "A" }, { $inc: { balance: -500 } });
+// ⚠️ CRASH HERE = A lost ₹500, B never received it! Money vanished!
+db.accounts.updateOne({ _id: "B" }, { $inc: { balance: +500 } });
+
+// WITH multi-document transaction (MongoDB 4.0+):
+const session = client.startSession();
+session.startTransaction();
+try {
+  db.accounts.updateOne({ _id: "A" }, { $inc: { balance: -500 } }, { session });
+  db.accounts.updateOne({ _id: "B" }, { $inc: { balance: +500 } }, { session });
+  db.transactions.insertOne({ from: "A", to: "B", amount: 500 }, { session });
+  session.commitTransaction();  // Works, but 2-10x slower than single-doc ops
+} catch (e) {
+  session.abortTransaction();   // Rollback
+}
+```
+
+**DynamoDB — TransactWriteItems (limited):**
+```javascript
+// Max 100 items, max 4MB total, costs 2x WCU (write capacity units)
+await dynamodb.transactWriteItems({
+  TransactItems: [
+    { Update: { TableName: "accounts", Key: { id: "A" }, 
+                UpdateExpression: "SET balance = balance - :amt", 
+                ExpressionAttributeValues: { ":amt": 500 } } },
+    { Update: { TableName: "accounts", Key: { id: "B" }, 
+                UpdateExpression: "SET balance = balance + :amt", 
+                ExpressionAttributeValues: { ":amt": 500 } } }
+  ]
+});
+// Atomic, but expensive, limited to 100 items, no rollback logic — just fails entirely
+```
+
+**Cassandra — NO multi-partition transactions:**
+```cql
+-- Cassandra has NO transactions across partitions
+-- You must use the Saga Pattern at application level:
+-- Step 1: Debit A          (if fails → done, no harm)
+-- Step 2: Credit B         (if fails → compensate: re-credit A)
+-- Step 3: Write audit log  (if fails → compensate: reverse both)
+-- This is complex, error-prone, and eventually consistent
+```
+
+**Key Takeaway:** SQL gives you atomic multi-table transactions for FREE. In NoSQL, you either pay a performance penalty (MongoDB), have strict limits (DynamoDB), or must build complex compensation logic yourself (Cassandra).
+
+---
+
+### Joins — Example: "Get all orders with customer name and product details"
+
+**SQL (PostgreSQL/MySQL) — Native optimized JOINs:**
+```sql
+-- 3 normalized tables: customers, orders, products
+-- Single query, database optimizer picks the best join strategy
+
+SELECT c.name, c.email, o.order_id, o.order_date, o.total,
+       p.product_name, p.price, oi.quantity
+FROM customers c
+JOIN orders o ON c.id = o.customer_id
+JOIN order_items oi ON o.order_id = oi.order_id
+JOIN products p ON oi.product_id = p.id
+WHERE c.id = 42
+ORDER BY o.order_date DESC;
+
+-- Database internally uses:
+--   Hash Join (large datasets) — O(n+m)
+--   Merge Join (sorted data) — O(n+m) 
+--   Nested Loop (small + indexed) — O(n*logm)
+-- Query planner picks optimal strategy automatically
+-- Result: ONE round trip, ONE query, milliseconds
+```
+
+**MongoDB — No joins, must denormalize OR use $lookup:**
+
+*Option 1: Denormalize (embed everything in one document)*
+```javascript
+// Store order with customer and product info embedded
+{
+  _id: "order_123",
+  customer: { name: "Vishal", email: "vishal@example.com" },  // duplicated!
+  order_date: "2025-06-15",
+  items: [
+    { product_name: "Laptop", price: 75000, quantity: 1 },    // duplicated!
+    { product_name: "Mouse", price: 500, quantity: 2 }
+  ],
+  total: 76000
+}
+
+// ✅ Fast read: single document fetch
+// ❌ Customer changes email? Must update ALL their order documents
+// ❌ Product price changes? Historical orders show wrong price (or must version)
+// ❌ Document grows unboundedly with more items
+```
+
+*Option 2: $lookup (application-level join — expensive)*
+```javascript
+db.orders.aggregate([
+  { $match: { customer_id: 42 } },
+  { $lookup: {                          // Like a LEFT JOIN
+      from: "customers",
+      localField: "customer_id",
+      foreignField: "_id",
+      as: "customer"
+  }},
+  { $lookup: {
+      from: "products",
+      localField: "items.product_id",
+      foreignField: "_id",
+      as: "product_details"
+  }},
+  { $sort: { order_date: -1 } }
+]);
+
+// ❌ $lookup is single-threaded, not optimized like SQL joins
+// ❌ Cannot use indexes on the "from" collection's filter efficiently
+// ❌ Multiple $lookups = multiple collection scans
+// ❌ 10-100x slower than equivalent SQL JOIN on large datasets
+```
+
+**DynamoDB — No joins at all, must design around it:**
+```javascript
+// Single Table Design: store customers, orders, products in ONE table
+// PK = CUSTOMER#42, SK = ORDER#2025-06-15#123    → order record
+// PK = CUSTOMER#42, SK = PROFILE                  → customer info
+// PK = ORDER#123,   SK = ITEM#1                   → order item
+
+// Query 1: Get customer + all orders (single partition query)
+await dynamodb.query({
+  TableName: "MainTable",
+  KeyConditionExpression: "PK = :pk",
+  ExpressionAttributeValues: { ":pk": "CUSTOMER#42" }
+});
+
+// ✅ Blazing fast — single partition read
+// ❌ Product details? Separate query to product partition (no join)
+// ❌ Must assemble the "joined" result in application code
+// ❌ Data modeling is complex and tightly coupled to access patterns
+```
+
+**Cassandra — One table per query pattern:**
+```cql
+-- Want orders by customer? Create a table for that:
+CREATE TABLE orders_by_customer (
+  customer_id UUID,
+  order_date TIMESTAMP,
+  order_id UUID,
+  customer_name TEXT,      -- denormalized! duplicated from customer table
+  product_name TEXT,       -- denormalized! duplicated from product table
+  quantity INT,
+  total DECIMAL,
+  PRIMARY KEY (customer_id, order_date)
+) WITH CLUSTERING ORDER BY (order_date DESC);
+
+-- ✅ Single partition read, very fast
+-- ❌ Customer name duplicated across millions of order rows
+-- ❌ Customer renames? Must update ALL rows (or accept stale data)
+-- ❌ Want orders by product? Need ANOTHER table with different partition key
+```
+
+**Key Takeaway:** SQL JOINs let you normalize data (store once, query flexibly). NoSQL forces you to either duplicate data (denormalize) causing update anomalies, or do expensive application-level joins. The more relationships your data has, the stronger the case for SQL.
+
+---
+
 ### The Core Trade-off
 ```
 SQL:  Optimize for WRITE correctness & data integrity → read via JOINs
@@ -697,4 +881,5 @@ Need event streaming                 → Apache Kafka (not a DB, but often in th
 ---
 
 *Last updated: April 2026*
+
 
